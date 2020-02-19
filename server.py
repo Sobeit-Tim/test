@@ -1,17 +1,28 @@
 #-*- coding:utf-8 -*-
 import json
 from collections import OrderedDict
-import urllib2
 from socket import *
 import threading
 import random
+
+
+def init():
+    global status,distance,eye,yes,no,answer,rightSight,leftSight
+    status=-2
+    distance='0'
+    eye='noooo'
+    yes=0
+    no=0
+    answer='l'
+    rightSight=0.1
+    leftSight=0.1
 
 init()
 tmp=0
 ans=['u','d','l','r']
 r=0
 HOST = ''
-PORT = 50000
+PORT = 10080
 ADDR = (HOST, PORT)
 # 소켓 생성
 serverSocket = socket(AF_INET, SOCK_STREAM)
@@ -24,16 +35,7 @@ serverSocket.listen(1)
 # 연결 수락
 clientSocket, addr_info = serverSocket.accept()
 print(str(addr_info),' is connected\n')
-def init():
-    global status,distance,eye,yes,no,answer,rightSight,leftSight
-    status=-1
-    distance='0'
-    eye='noooo'
-    yes=0
-    no=0
-    answer='l'
-    rightSight=1.0
-    leftSight=1.0
+
 def msg():
     global status,eye,answer,no,leftSight,rightSight,distance
     # status(1):1~5, eye(5):front,noooo,right,leftt,noooo, answer(1):l,r,u,d, no(1):0~3, left(4), right(4), dis(~)
@@ -49,8 +51,15 @@ def msg():
 def noteListen(): #노트북에서 데이터 날라올 때
     global tmp,distance,eye
     while True:
-        data=clientSocket.recv(1024)
-        if data.decode() =='take':
+        try:
+            data=clientSocket.recv(1024)
+        except:
+            print('user out')
+            break
+        if not data:
+            init()
+            break
+        if data.decode() =='take' or data.decode() == 'check':
             tmp=1
         if status==0:
             distance=data.decode()
@@ -62,12 +71,24 @@ def noteListen(): #노트북에서 데이터 날라올 때
        
 def cloudListen(sock): #클라우드 함수에서 서버로 접속할 때 
     global tmp,status,distance,eye,leftSight,rightSight,no,yes,r,ans
-    data=sock.recv(1024)
+    data=sock.recv(1024).decode()    
     if data=='start':
-        if status==-1:
+        if status==-2:
             print('start')
+            clientSocket.send('change')
             sock.send(msg())
             status +=1
+        else:
+            sock.send(msg())
+    elif data=='face':
+        if status==-1:
+            print('face')
+            tmp=0
+            clientSocket.send('takeFac')
+            while tmp == 0:
+                pass
+            sock.send(msg())
+            status += 1
         else:
             sock.send(msg())
     elif data=='distance':
@@ -78,7 +99,7 @@ def cloudListen(sock): #클라우드 함수에서 서버로 접속할 때
             while tmp==0:
                 pass
             sock.send(msg())
-            if distance=='3':
+            if distance=='2':
                 status +=1
             else:
                 #send distance pic
@@ -92,7 +113,7 @@ def cloudListen(sock): #클라우드 함수에서 서버로 접속할 때
             while tmp==0:
                 pass
             print('leftEye')
-            eye='leftt' # 테스트는 left가 맞게ㅔ끔
+            #eye='leftt' # 테스트는 left가 맞게ㅔ끔
             sock.send(msg())
             if eye=='leftt':
                 status=2
@@ -103,7 +124,7 @@ def cloudListen(sock): #클라우드 함수에서 서버로 접속할 때
             while tmp==0:
                 pass
             print('rightEye')
-            eye='right' #테스트는 right가 맞게끔
+            #eye='right' #테스트는 right가 맞게끔
             sock.send(msg())
             if eye=='right':
                 status=4
@@ -117,16 +138,24 @@ def cloudListen(sock): #클라우드 함수에서 서버로 접속할 때
                 yes += 1
                 ch=0
                 if yes ==3:
-                    if leftSight==2: # 시력 2.0 찍었을 시
+                    if leftSight==1.5: # 시력 1.5 찍었을 시
                         no=3
                         sock.send(msg())
                         status +=1
                         ch=1
+                        clientSocket.send("next")
                     else:
-                        leftSight += 0.5
+                        if leftSight == 0.1:
+                            leftSight += 0.1
+                        elif leftSight <= 1.0:
+                            leftSight += 0.2
+                        elif leftSight == 1.2:
+                            leftSight += 0.3
                         no=0
                         yes=0
                         sock.send(msg())
+                else:
+                    sock.send(msg())
                 if ch==0: # 시력 2.0 이 아닐 시 사진 보여주기냄
                     r=random.randrange(0,4)
                     clientSocket.send(str(r)+'pic'+str(leftSight))
@@ -134,11 +163,16 @@ def cloudListen(sock): #클라우드 함수에서 서버로 접속할 때
             else:
                 no += 1
                 if no==3:
-                    if leftSight!=0.1: #최소시력 0.1
-                        leftSight -= 0.5
+                    if leftSight == 0.2:
+                        leftSight -= 0.1
+                    elif leftSight > 0.2 and leftSight <= 1.2:
+                        leftSight -= 0.2
+                    elif leftSight == 1.5:
+                        leftSight -= 0.3
                     yes=0
                     sock.send(msg())
                     no=0
+                    clientSocket.send("next")
                     status +=1
                 else:
                     sock.send(msg())
@@ -156,7 +190,12 @@ def cloudListen(sock): #클라우드 함수에서 서버로 접속할 때
                         status +=1
                         clientSocket.send('result'+str(leftSight)+'/'+str(rightSight))
                     else:
-                        rightSight +=0.5
+                        if rightSight == 0.1:
+                            rightSight += 0.1
+                        elif rightSight <= 1.0:
+                            rightSight += 0.2
+                        elif rightSight == 1.2:
+                            rightSight += 0.3
                         no=0
                         yes=0
                 sock.send(msg())
@@ -167,8 +206,12 @@ def cloudListen(sock): #클라우드 함수에서 서버로 접속할 때
             else:
                 no+=1
                 if no==3:
-                    if rightSight !=0.1: #최소시력 0.1
-                        rightSight -=0.5
+                    if rightSight == 0.2:
+                        rightSight -= 0.1
+                    elif rightSight > 0.2 and rightSight <= 1.2:
+                        rightSight -= 0.2
+                    elif rightSight == 1.5:
+                        rightSight -= 0.3
                     sock.send(msg())
                     clientSocket.send('result'+str(leftSight)+'/'+str(rightSight))
                     # send result
@@ -193,8 +236,8 @@ def cloudListen(sock): #클라우드 함수에서 서버로 접속할 때
 
 notet=threading.Thread(target=noteListen)
 notet.start()
+serverSocket.listen(5)
 while True:
-    serverSocket.listen(1)
     client, add = serverSocket.accept() 
     cloudt= threading.Thread(target=cloudListen,args=(client,))
     cloudt.start()
